@@ -16,9 +16,6 @@ reviews <- fromJSON('data/reviews.json.gz')
 reviews <- reviews[map(reviews, ~!is.null(.$nreviews)) %>% unlist]
 
 reviews <- tibble(
-  eatery_id = names(reviews) %>%
-    map(~rep(., length(reviews[[.]]$reviews$review_id))) %>% 
-    combine(),
   review_id = reviews %>% 
     map(~.$reviews$review_id) %>% 
     combine(),

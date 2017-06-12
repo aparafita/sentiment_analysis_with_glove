@@ -7,3 +7,4 @@ glove/
 papers/
 plots/
 *.pyc
+.Rproj.user
