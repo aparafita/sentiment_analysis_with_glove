@@ -60,20 +60,11 @@ glove_vocabulary <- rownames(glove)
 nrow(reviews) # 151014
 
 set.seed(123)
-row_weights_train <- (1 / 5 / table(reviews$rating))[reviews$rating] %>% as.vector
-train <- sample.int(nrow(reviews), 10000, prob=row_weights_train)
-
+train <- sample.int(nrow(reviews), 100000)
 test <- setdiff(1:nrow(reviews), train)
-row_weights_test <- (1 / 5 / table(reviews$rating[test]))[reviews$rating[test]] %>% as.vector
-test <- sample(test, 1000, prob=row_weights_test)
 
-reviews$rating[train] %>% table
-# 1    2    3    4    5
-# 1938 1888 2055 2061 2058
-reviews$rating[test] %>% table
-# 1   2   3   4   5 
-# 199 191 217 198 195 
-
+length(train) # 100000
+length(test) # 51014
 
 # Don't save it yet, because there will be an additional filter just ahead
 
@@ -94,9 +85,11 @@ dtm <- DocumentTermMatrix(corpus)
 
 vocabulary <- colnames(dtm)
 
-length(vocabulary) # 25625
+length(vocabulary) # 87740
 vocabulary <- intersect(vocabulary, glove_vocabulary)
-length(vocabulary) # 18022
+length(vocabulary) # 39950
+
+save(vocabulary, file='data/vocabulary.RData')
 
 dtm <- dtm[, vocabulary]
 
@@ -121,8 +114,8 @@ idf <- log(nrow(dtm) / df)
 
 # As an example, let's look at which words have the lowest IDF
 idf %>% sort %>% head
-# food       good restaurant    service      place  barcelona 
-# 0.5390536  0.8337895  0.9503647  0.9999441  1.0056685  1.2690448 
+# food       good restaurant      place    service  barcelona 
+# 0.5769910  0.8341249  0.9675214  0.9743602  1.0288057  1.1291337 
 
 doc2vec <- function(doc, idf){
   # Given the TF scores of words for a given doc, computes the document embedding
@@ -132,7 +125,11 @@ doc2vec <- function(doc, idf){
   doc <- doc[non_zero] * idf[non_zero] # these are the weights
   doc <- doc / sum(doc) # weights sum to 1
   
-  colSums(doc * glove[names(doc), ]) # weighted average
+  if (length(doc) > 1){
+    colSums(doc * glove[names(doc), ]) # weighted average
+  } else {
+    glove[names(doc), ] # just return the unique word vector
+  }
 }
 
 train_docs <- dtm %>% 
