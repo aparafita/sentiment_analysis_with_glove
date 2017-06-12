@@ -4,6 +4,7 @@
 library(jsonlite)
 library(stringr)
 library(MASS)
+library(e1071)
 library(FactoMineR)
 library(tidyverse)
 
@@ -52,25 +53,24 @@ test_docs$review_id <- reviews$review_id[test]
 test_docs <- left_join(test_docs, reviews, by='review_id')
 
 
-# Trials ------------------------------------------------------------------
+# PCA ---------------------------------------------------------------------
 
-train <- train_docs
-test <- test_docs
-
-X <- train %>% 
+Xtrain <- train_docs %>% 
   mutate(rating=factor(rating)) %>% 
   select(-review_id, -eatery_id) %>% 
   as.data.frame
 
-Xtest <- test %>% 
+Xtest <- test_docs %>% 
   mutate(rating=factor(rating)) %>% 
   select(-review_id, -eatery_id) %>% 
   as.data.frame
 
+row_weights <- as.vector((1 / 5 / table(train_docs$rating))[train_docs$rating])
 pca <- PCA(
-  rbind(X, Xtest), ncp=300,
+  rbind(Xtrain, Xtest), ncp=300,
+  ind.sup=(nrow(Xtrain) + 1):(nrow(Xtrain) + nrow(Xtest)),
   quali.sup=301,
-  ind.sup=(nrow(X) + 1):(nrow(X) + nrow(Xtest)),
+  row.w=row_weights,
   graph=FALSE
 )
 
@@ -95,12 +95,43 @@ par(mfrow=c(1, 1))
 tibble(
   dim1=pca$ind$coord[, 1],
   dim2=pca$ind$coord[, 2],
-  rating=X[, 301]
+  rating=factor(Xtrain[, 301])
+) %>% 
+  sample_n(10000) %>% 
+  ggplot(aes(dim1, dim2, color=rating)) +
+  geom_point(alpha=.25) + 
+  ggtitle('Train PCA first factorial plane with rating') + 
+  theme(plot.title = element_text(hjust = 0.5))
+
+ggsave('plots/pca_ffp_train_rating.png')
+
+tibble(
+  dim1=pca$ind$coord[, 1],
+  dim2=pca$ind$coord[, 2],
+  rating=Xtrain[, 301]
 ) %>% 
   mutate(sentiment=as.integer(rating) > 3) %>% 
   filter(rating != 3) %>% 
+  sample_n(10000) %>% 
   ggplot(aes(dim1, dim2, color=sentiment)) +
-  geom_point(alpha=.25)
+  geom_point(alpha=.25) + 
+  ggtitle('Train PCA first factorial plane with sentiment') + 
+  theme(plot.title = element_text(hjust = 0.5))
+
+ggsave('plots/pca_ffp_train_sentiment.png')
+
+tibble(
+  dim1=pca$ind.sup$coord[, 1],
+  dim2=pca$ind.sup$coord[, 2],
+  rating=factor(Xtest[, 301])
+) %>% 
+  sample_n(10000) %>% 
+  ggplot(aes(dim1, dim2, color=rating)) +
+  geom_point(alpha=.25) + 
+  ggtitle('Test PCA first factorial plane with rating') + 
+  theme(plot.title = element_text(hjust = 0.5))
+
+ggsave('plots/pca_ffp_test_rating.png')
 
 tibble(
   dim1=pca$ind.sup$coord[, 1],
@@ -110,145 +141,119 @@ tibble(
   mutate(sentiment=as.integer(rating) > 3) %>% 
   filter(rating != 3) %>% 
   ggplot(aes(dim1, dim2, color=sentiment)) +
-  geom_point(alpha=.25)
+  geom_point(alpha=.25) + 
+  ggtitle('Test PCA first factorial plane with sentiment') + 
+  theme(plot.title = element_text(hjust = 0.5))
 
+ggsave('plots/pca_ffp_test_sentiment.png')
+
+
+Xtrain <- pca$ind$coord[, 1:ncomp]
+Xtest <- pca$ind.sup$coord[, 1:ncomp]
 ytrain <- train_docs$rating
 ytest <- test_docs$rating
 
-Xtrain <- pca$ind$coord[ytrain != 3, 1:ncomp]
-Xtest <- pca$ind.sup$coord[ytest != 3, 1:ncomp]
-
-ytrain <- (ytrain > 3)[ytrain != 3]
-ytest <- (ytest > 3)[ytest != 3]
-
-lda_model <- lda(Xtrain, grouping=ytrain)
-lda_pred <- predict(lda_model, Xtest)$class
-
-table(real=ytest, pred=lda_pred)
-mean(ytest == lda_pred) # Accuracy: 0.8861893
-
-tibble(
-  dim1 = Xtest[, 1],
-  dim2 = Xtest[, 2],
-  rating = (test_docs$rating)[test_docs$rating != 3]
-) %>% 
-  mutate(
-    sentiment = rating > 3,
-    rating = factor(rating),
-    pred = lda_pred,
-    correct = ytest == pred
-  ) %>% 
-  gather('real_pred', 'value', sentiment, pred, correct) %>% 
-  arrange(dim1, dim2) %>% 
-  ggplot(aes(dim1, dim2, color=value)) +
-  geom_point() + facet_wrap(~real_pred)
-  
-
-# Division in positive/negative sentiment ---------------------------------
-# We'll create a training set consisting of negative/positive entries,
-# both of them balanced (with approximately the same number of entries).
-
-# Firstly, if we want to divide in positive/negative, we should delete rating=3,
-# which is ambiguous and as such cannot be tagged as positive or negative with certainty.
-train_docs <- train_docs[reviews$rating[train] != 3, ]
-train <- train[reviews$rating[train] != 3]
-ytrain <- reviews$rating[train] > 3
-
-table(ytrain)
-
-# Additionally, balance train so that it contains aproximately the same number of reviews
-# both positive and negative (which means, there's no bias in the resulting training set).
-set.seed(123)
-balanced <- sample(1:length(train), 20000, prob=(1 / 2 / table(ytrain))[ytrain + 1])
-
-Xtrain <- train_docs[balanced, ]
-ytrain <- ytrain[balanced]
-
-Xtest <- test_docs
-ytest <- ifelse(reviews$rating[test] == 3, NA, reviews$rating[test] > 3)
-
-is.na(ytest) %>% sum # 5086
-table(ytest)
-# FALSE  TRUE 
-# 6883 39045 
-
-
-# PCA ---------------------------------------------------------------------
-pca <- PCA(
-  rbind(Xtrain, Xtest), 
-  ncp=300, 
-  ind.sup=(nrow(Xtrain) + 1):(nrow(Xtrain) + nrow(Xtest)),
-  graph=FALSE
-)
-
-# Using Kaiser Rule, obtain number of components
-ncomp <- sum(pca$eig$eigenvalue > mean(pca$eig$eigenvalue))
-ncomp
-
-# Plot screeplot
-par(mfrow=c(1, 2))
-plot(pca$eig$eigenvalue, type='o', cex=.5, main='PCA screeplot')
-abline(v=ncomp, h=mean(pca$eig$eigenvalue), lty='dashed', col='red')
-
-plot(
-  pca$eig$`cumulative percentage of variance`, 
-  type='o', cex=.5, 
-  main='Cumulative percentage of explained variance'
-)
-abline(v=ncomp, lty='dashed', col='red')
-par(mfrow=c(1, 1))
-
-# Plot first factorial plane
-tibble(
-  dim1=pca$ind$coord[, 1],
-  dim2=pca$ind$coord[, 2],
-  sentiment=ytrain
-) %>% 
-  sample_n(10000) %>% 
-  ggplot(aes(dim1, dim2, color=sentiment)) +
-  geom_point(alpha=.25)
-
-tibble(
-  dim1=pca$ind.sup$coord[, 1],
-  dim2=pca$ind.sup$coord[, 2],
-  sentiment=ytest
-) %>% 
-  sample_n(10000) %>% 
-  ggplot(aes(dim1, dim2, color=sentiment)) +
-  geom_point(alpha=.25)
+sent_Xtrain <- Xtrain[ytrain != 3, ]
+sent_Xtest <- Xtest[ytest != 3, ]
+sent_ytrain <- ytrain[ytrain != 3] > 3
+sent_ytest <- ytest[ytest != 3] > 3
 
 
 # LDA ---------------------------------------------------------------------
 
-lda_model <- lda(Xtrain, grouping=ytrain)
-lda_pred <- predict(lda_model, Xtest)$class
+lda_model <- lda(Xtrain, ytrain)
+lda_pred <- predict(lda_model, Xtest)
 
-lda_pred[is.na(ytest)] %>% table
-# FALSE  TRUE 
-# 3238  1848 
+(lda_conf <- table(real=ytest, pred=lda_pred$class))
+# pred
+# real     1     2     3     4     5
+# 1  2607   324   312   154   555
+# 2   917   425   560   310   712
+# 3   495   289  1007  1402  1887
+# 4   262   112   642  3703  8376
+# 5   223    60   301  2637 22742
 
-table(real=ytest[!is.na(ytest)], pred=lda_pred[!is.na(ytest)])
-mean(ytest[!is.na(ytest)] == lda_pred[!is.na(ytest)], na.rm=TRUE) # Accuracy: 0.301133
+(lda_acc <- sum(diag(lda_conf)) / sum(lda_conf)) # 0.5975615
+(lda_mse <- mean((ytest - as.numeric(lda_pred$class)) ^ 2)) # 1.018446
 
-mean(sample(c(TRUE, FALSE), sum(!is.na(ytest)), replace=TRUE) == ytest[!is.na(ytest)])
+
+lda_sent_model <- lda(sent_Xtrain, sent_ytrain)
+lda_sent_pred <- predict(lda_sent_model, sent_Xtest)
+
+(lda_sent_conf <- table(real=sent_ytest, pred=lda_sent_pred$class))
+# pred
+# real    FALSE  TRUE
+# FALSE  4616  2260
+# TRUE    846 38212
+
+(lda_sent_acc <- sum(diag(lda_sent_conf)) / sum(lda_sent_conf)) # 0.9323812
+(lda_sent_prec_pos <- lda_sent_conf[2, 2] / sum(lda_sent_conf[, 2])) # 0.9441589
+(lda_sent_prec_neg <- lda_sent_conf[1, 1] / sum(lda_sent_conf[, 1])) # 0.8451117
+(lda_sent_sens <- lda_sent_conf[2, 2] / sum(lda_sent_conf[2, ])) # 0.9783399
+(lda_sent_spec <- lda_sent_conf[1, 1] / sum(lda_sent_conf[1, ])) # 0.6713205
+(lda_sent_fscore_pos <- 2 * lda_sent_prec_pos * lda_sent_sens /
+    (lda_sent_prec_pos + lda_sent_sens)) # 0.9609456
+(lda_sent_fscore_neg <- 2 * lda_sent_prec_neg * lda_sent_spec / 
+    (lda_sent_prec_neg + lda_sent_spec)) # 0.7482574
+
+
+# QDA ---------------------------------------------------------------------
+
+qda_model <- qda(Xtrain, ytrain)
+qda_pred <- predict(qda_model, Xtest)
+
+(qda_conf <- table(real=ytest, pred=qda_pred$class))
+# pred
+# real     1     2     3     4     5
+# 1  2761   514   299   196   182
+# 2  1240   684   486   266   248
+# 3   885   918  1154  1204   919
+# 4   786   951  1433  4123  5802
+# 5  1189   974   996  4434 18370
+
+(qda_acc <- sum(diag(qda_conf)) / sum(qda_conf)) # 0.5310699
+(qda_mse <- mean((ytest - as.numeric(qda_pred$class)) ^ 2)) # 1.471498
+
+
+qda_sent_model <- qda(sent_Xtrain, sent_ytrain)
+qda_sent_pred <- predict(qda_sent_model, sent_Xtest)
+
+(qda_sent_conf <- table(real=sent_ytest, pred=qda_sent_pred$class))
+# pred
+# real    FALSE  TRUE
+# FALSE  5629  1247
+# TRUE   4651 34407
+
+(qda_sent_acc <- sum(diag(qda_sent_conf)) / sum(qda_sent_conf)) # 0.8715984
+(qda_sent_prec_pos <- qda_sent_conf[2, 2] / sum(qda_sent_conf[, 2])) # 0.965025
+(qda_sent_prec_neg <- qda_sent_conf[1, 1] / sum(qda_sent_conf[, 1])) # 0.5475681
+(qda_sent_sens <- qda_sent_conf[2, 2] / sum(qda_sent_conf[2, ])) # 0.8809207
+(qda_sent_spec <- qda_sent_conf[1, 1] / sum(qda_sent_conf[1, ])) # 0.8186446
+(qda_sent_fscore_pos <- 2 * qda_sent_prec_pos * qda_sent_sens /
+    (qda_sent_prec_pos + qda_sent_sens)) # 0.9210569
+(qda_sent_fscore_neg <- 2 * qda_sent_prec_neg * qda_sent_spec / 
+    (qda_sent_prec_neg + qda_sent_spec)) # 0.6562136
 
 
 # SVM ---------------------------------------------------------------------
-library(e1071)
-model <- svm(pca$ind$coord[, 1:ncomp], as.factor(ytrain), kernel='radial')
-svm_pred <- predict(model, test_docs)
 
-mean(ytest[!is.na(ytest)] == svm_pred[!is.na(ytest)], na.rm=TRUE) # Accuracy: 0.5138913
+subtrain <- sample(1:nrow(Xtrain), 10000)
+svm_model <- svm(
+  Xtrain[subtrain, ], ytrain[subtrain], 
+  type='C-classification', kernel='radial', 
+  class.weights=table(ytrain[subtrain])
+)
 
-# Old trials --------------------------------------------------------------
+svm_pred <- predict(svm_model, Xtest)
 
+(svm_conf <- table(real=ytest, pred=svm_pred))
+# pred
+# real     1     2     3     4     5
+# 1  2182   667   295   381   427
+# 2   758   615   498   581   472
+# 3   385   495   881  1875  1444
+# 4   189   198   881  5049  6778
+# 5   170   132   640  6047 18974
 
-
-qda_model <- qda(Xtrain, grouping=ytrain)
-qda_pred <- predict(qda_model, Xtest)
-qda_pred <- levels(qda_pred$class)[qda_pred$class] %>% as.integer
-
-table(real=ytest, pred=qda_pred)
-mean(ytest == qda_pred) # Accuracy: 0.2526169
-mean((ytest - qda_pred) ^ 2) # MSE: 7.21945
-
+(svm_acc <- sum(diag(svm_conf)) / sum(svm_conf)) # 0.5430078
+(svm_mse <- mean((ytest - as.numeric(svm_pred)) ^ 2)) # 1.024993
