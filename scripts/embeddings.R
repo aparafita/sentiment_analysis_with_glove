@@ -159,10 +159,7 @@ dtm_test <- DocumentTermMatrix(corpus_test)
 
 # test might have another vocabulary, since new words could appear
 test_vocabulary <- colnames(dtm_test)
-
-length(test_vocabulary) # 7356
 test_vocabulary <- intersect(test_vocabulary, vocabulary)
-length(test_vocabulary) # 5679
 
 dtm_test <- dtm_test[, test_vocabulary]
 

@@ -77,7 +77,7 @@ pca <- PCA(
 # Plot screeplot
 # Using Kaiser Rule, obtain number of components
 ncomp <- sum(pca$eig$eigenvalue > mean(pca$eig$eigenvalue))
-ncomp
+ncomp # 75
 
 par(mfrow=c(1, 2))
 plot(pca$eig$eigenvalue, type='o', cex=.5, main='PCA screeplot')
@@ -90,6 +90,8 @@ plot(
 )
 abline(v=ncomp, lty='dashed', col='red')
 par(mfrow=c(1, 1))
+
+pca$eig$`cumulative percentage of variance`[ncomp] # 70.00494
 
 # Plot first factorial plane
 tibble(

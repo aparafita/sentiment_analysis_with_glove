@@ -228,6 +228,10 @@ conf <- table(
 )
 
 conf # 100% accuracy; as a result, precision and sensitivity are also 100%
+# pred
+# real    FALSE TRUE
+# FALSE    60    0
+# TRUE      0   44
 # This doesn't mean that the model is perfect, but it should still have a very good performance
 
 # Lastly, let's train the model with both the train and test set 
