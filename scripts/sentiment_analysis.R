@@ -239,6 +239,7 @@ qda_sent_pred <- predict(qda_sent_model, sent_Xtest)
 
 # SVM ---------------------------------------------------------------------
 
+# We need a littler dataset to train, because SVM would take too much time
 subtrain <- sample(1:nrow(Xtrain), 10000)
 svm_model <- svm(
   Xtrain[subtrain, ], ytrain[subtrain], 
