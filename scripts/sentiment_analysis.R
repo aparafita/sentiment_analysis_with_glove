@@ -198,7 +198,6 @@ lda_sent_pred <- predict(lda_sent_model, sent_Xtest)
 (lda_sent_fscore_neg <- 2 * lda_sent_prec_neg * lda_sent_spec / 
     (lda_sent_prec_neg + lda_sent_spec)) # 0.7482574
 
-
 # QDA ---------------------------------------------------------------------
 
 qda_model <- qda(Xtrain, ytrain)
@@ -240,11 +239,56 @@ qda_sent_pred <- predict(qda_sent_model, sent_Xtest)
 # SVM ---------------------------------------------------------------------
 
 # We need a littler dataset to train, because SVM would take too much time
+# We also need a train/validation splitting for choosing the right C
+set.seed(123)
 subtrain <- sample(1:nrow(Xtrain), 10000)
+subtest <- sample(setdiff(1:nrow(Xtrain), subtrain), 1000)
+
+c_range <- 10^(-2:3)
+
+svm_accs <- c()
+svm_mses <- c()
+
+for (C in c_range) {
+  print(paste('C = ', C, sep=''))
+  
+  svm_model <- svm(
+    Xtrain[subtrain, ], ytrain[subtrain], 
+    type='C-classification', kernel='radial', 
+    class.weights=length(subtrain) / table(ytrain[subtrain]),
+    cost=C
+  )
+  
+  svm_pred <- predict(svm_model, Xtrain[subtest, ])
+  
+  svm_conf <- table(real=ytrain[subtest], pred=svm_pred)
+  
+  svm_accs <- c(svm_accs, sum(diag(svm_conf)) / sum(svm_conf))
+  svm_mses <- c(svm_mses, mean((ytrain[subtest] - as.numeric(svm_pred)) ^ 2))
+}
+
+tibble(
+  c = c_range,
+  accuracy = svm_accs,
+  mse = svm_mses
+) %>% 
+  gather('metric', 'value', accuracy, mse) %>% 
+  ggplot(aes(log10(c), value)) +
+  geom_line() + geom_text(aes(label=c)) + 
+  facet_wrap(~metric) + 
+  ggtitle('SVM C optimization') + 
+  theme(plot.title = element_text(hjust = 0.5))
+
+ggsave('plots/svm_c_opt.png')
+
+# C=1 has the highest accuracy with almost the lowest MSE
+C <- 1
+
 svm_model <- svm(
   Xtrain[subtrain, ], ytrain[subtrain], 
   type='C-classification', kernel='radial', 
-  class.weights=table(ytrain[subtrain])
+  class.weights=length(subtrain) / table(ytrain[subtrain]),
+  cost=C
 )
 
 svm_pred <- predict(svm_model, Xtest)
@@ -252,11 +296,73 @@ svm_pred <- predict(svm_model, Xtest)
 (svm_conf <- table(real=ytest, pred=svm_pred))
 # pred
 # real     1     2     3     4     5
-# 1  2182   667   295   381   427
-# 2   758   615   498   581   472
-# 3   385   495   881  1875  1444
-# 4   189   198   881  5049  6778
-# 5   170   132   640  6047 18974
+# 1  2226   555   495   326   350
+# 2   814   506   731   492   381
+# 3   390   459  1294  1824  1113
+# 4   206   195  1264  5537  5893
+# 5   161   152   937  6072 18641
 
-(svm_acc <- sum(diag(svm_conf)) / sum(svm_conf)) # 0.5430078
-(svm_mse <- mean((ytest - as.numeric(svm_pred)) ^ 2)) # 1.024993
+(svm_acc <- sum(diag(svm_conf)) / sum(svm_conf)) # 0.5528678
+(svm_mse <- mean((ytest - as.numeric(svm_pred)) ^ 2)) # 0.9773984
+
+
+# C optimization for the sentiment problem
+set.seed(123)
+subtrain <- sample(1:nrow(sent_Xtrain), 10000)
+subtest <- sample(setdiff(1:nrow(sent_Xtrain), subtrain), 1000)
+
+svm_accs <- c()
+
+for (C in c_range) {
+  print(paste('C = ', C, sep=''))
+
+  svm_sent_model <- svm(
+    sent_Xtrain[subtrain, ], sent_ytrain[subtrain], 
+    type='C-classification', kernel='radial', 
+    class.weights=length(subtrain) / table(sent_ytrain[subtrain]),
+    cost=C
+  )
+  
+  svm_sent_pred <- predict(svm_sent_model, sent_Xtrain[subtest, ])
+  
+  svm_sent_conf <- table(real=sent_ytrain[subtest], pred=svm_sent_pred)
+  svm_accs <- c(svm_accs, sum(diag(svm_sent_conf)) / sum(svm_sent_conf))
+}
+
+tibble(
+  c = c_range,
+  accuracy = svm_accs
+) %>% 
+  ggplot(aes(log10(c), accuracy)) +
+  geom_line() + geom_text(aes(label=c)) +
+  ggtitle('SVM C optimization') + 
+  theme(plot.title = element_text(hjust = 0.5))
+
+ggsave('plots/svm_sent_c_opt.png')
+
+# C=1 wins again
+C <- 1
+
+svm_sent_model <- svm(
+  sent_Xtrain[subtrain, ], sent_ytrain[subtrain], 
+  type='C-classification', kernel='radial', 
+  class.weights=length(subtrain) / table(sent_ytrain[subtrain]),
+  cost=C
+)
+
+svm_sent_pred <- predict(svm_sent_model, sent_Xtest)
+(svm_sent_conf <- table(real=sent_ytest, pred=svm_sent_pred))
+# pred
+# real    FALSE  TRUE
+# FALSE  5404  1472
+# TRUE   1695 37363
+
+(svm_sent_acc <- sum(diag(svm_sent_conf)) / sum(svm_sent_conf)) # 0.9310533
+(svm_sent_prec_pos <- svm_sent_conf[2, 2] / sum(svm_sent_conf[, 2])) # 0.962096
+(svm_sent_prec_neg <- svm_sent_conf[1, 1] / sum(svm_sent_conf[, 1])) # 0.761234
+(svm_sent_sens <- svm_sent_conf[2, 2] / sum(svm_sent_conf[2, ])) # 0.956603
+(svm_sent_spec <- svm_sent_conf[1, 1] / sum(svm_sent_conf[1, ])) # 0.785922
+(svm_sent_fscore_pos <- 2 * svm_sent_prec_pos * svm_sent_sens /
+    (svm_sent_prec_pos + svm_sent_sens)) # 0.9593417
+(svm_sent_fscore_neg <- 2 * svm_sent_prec_neg * svm_sent_spec / 
+    (svm_sent_prec_neg + svm_sent_spec)) # 0.773381
