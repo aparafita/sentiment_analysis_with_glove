@@ -8,7 +8,7 @@ Author: Álvaro Parafita
 In order to execute all the necessary code, one should download all data files 
 from <a href="https://mega.nz/#!OoI2iT7Z!ulpOM3p-gZy4AZutDch9rsdbNUQOapg1rQ_K8qeXoHg">here</a> and store them in a *data* folder in the project root folder. 
 
-Additionally, for the GloVe vectors, one should download them from <a href="https://nlp.stanford.edu/projects/glove/">here</a>, the dataset called <a href="http://nlp.stanford.edu/data/glove.6B.zip>glove.6B.zip</a>, and store the text files inside this ZIP in a folder called *glove* in the project root folder.
+Additionally, for the GloVe vectors, one should download them from <a href="https://nlp.stanford.edu/projects/glove/">here</a>, the dataset called <a href="http://nlp.stanford.edu/data/glove.6B.zip">glove.6B.zip</a>, and store the text files inside this ZIP in a folder called *glove* in the project root folder.
 
 
 # Usage:
