@@ -1,6 +1,7 @@
 # This script will use the predefined document embeddings
 # to create a predictor of the rating of a review.
 
+library(plotly)
 library(jsonlite)
 library(stringr)
 library(MASS)
@@ -122,34 +123,26 @@ tibble(
 
 ggsave('plots/pca_ffp_train_sentiment.png')
 
-tibble(
-  dim1=pca$ind.sup$coord[, 1],
-  dim2=pca$ind.sup$coord[, 2],
-  rating=factor(Xtest[, 301])
-) %>% 
-  sample_n(10000) %>% 
-  ggplot(aes(dim1, dim2, color=rating)) +
-  geom_point(alpha=.25) + 
-  ggtitle('Test PCA first factorial plane with rating') + 
-  theme(plot.title = element_text(hjust = 0.5))
-
-ggsave('plots/pca_ffp_test_rating.png')
-
-tibble(
-  dim1=pca$ind.sup$coord[, 1],
-  dim2=pca$ind.sup$coord[, 2],
-  rating=Xtest[, 301]
+x <- tibble(
+  dim1=pca$ind$coord[, 1],
+  dim2=pca$ind$coord[, 2],
+  dim3=pca$ind$coord[, 3],
+  rating=Xtrain[, 301]
 ) %>% 
   mutate(sentiment=as.integer(rating) > 3) %>% 
   filter(rating != 3) %>% 
-  ggplot(aes(dim1, dim2, color=sentiment)) +
-  geom_point(alpha=.25) + 
-  ggtitle('Test PCA first factorial plane with sentiment') + 
-  theme(plot.title = element_text(hjust = 0.5))
+  sample_n(10000)
 
-ggsave('plots/pca_ffp_test_sentiment.png')
+plot_ly(
+  x, x = ~dim1, y = ~dim2, z = ~dim3, 
+  color = ~sentiment, colors = c('#FF0000', '#0000FF'),
+  alpha=.75
+) %>%
+  add_markers %>% 
+  layout(title='Train PCA first 3 components with sentiment')
 
 
+# Finally, prepare the model input
 Xtrain <- pca$ind$coord[, 1:ncomp]
 Xtest <- pca$ind.sup$coord[, 1:ncomp]
 ytrain <- train_docs$rating
